@@ -2,9 +2,11 @@ package com.chun.reddit.service;
 
 import com.chun.reddit.dto.AuthenticationResponse;
 import com.chun.reddit.dto.LoginRequest;
+import com.chun.reddit.dto.RefreshTokenRequest;
 import com.chun.reddit.dto.RegisterRequest;
 import com.chun.reddit.exceptions.SpringRedditException;
 import com.chun.reddit.model.NotificationEmail;
+import com.chun.reddit.model.RefreshToken;
 import com.chun.reddit.model.User;
 import com.chun.reddit.model.VerificationToken;
 import com.chun.reddit.repository.UserRepository;
@@ -31,6 +33,7 @@ import static com.chun.reddit.util.Constants.ACTIVATION_EMAIL;
 @Service
 @AllArgsConstructor
 @Slf4j
+@Transactional
 public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -39,8 +42,8 @@ public class AuthService {
     private final MailService mailService;
     private final AuthenticationManager authenticationManager;
     private final JwtProvider jwtProvider;
+    private final RefreshTokenService refreshTokenService;
 
-    @Transactional
     public void signup(RegisterRequest registerRequest) {
         User user = new User();
         user.setUsername(registerRequest.getUsername());
@@ -75,15 +78,6 @@ public class AuthService {
                 .orElseThrow(() -> new UsernameNotFoundException("User name note found - " + principal.getUsername()));
     }
 
-    public AuthenticationResponse login(LoginRequest loginRequest) {
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword())
-        );
-        SecurityContextHolder.getContext().setAuthentication(authentication);
-        String authenticationToken = jwtProvider.generateToken(authentication);
-        return new AuthenticationResponse(authenticationToken, loginRequest.getUsername());
-    }
-
     private String encodePassword(String password) {
         return passwordEncoder.encode(password);
     }
@@ -94,12 +88,36 @@ public class AuthService {
         fetchUserAndEnable(verificationTokenOptional.get());
     }
 
-    @Transactional
     void fetchUserAndEnable(VerificationToken verificationToken) {
         String username = verificationToken.getUser().getUsername();
         User user = userRepository.findByUsername(username).orElseThrow(
                 () -> new SpringRedditException("User Not Found with id - " + username));
         user.setEnabled(true);
         userRepository.save(user);
+    }
+
+    public AuthenticationResponse login(LoginRequest loginRequest) {
+        Authentication authentication = authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword())
+        );
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+        String token = jwtProvider.generateToken(authentication);
+        return AuthenticationResponse.builder()
+                .authenticationToken(token)
+                .refreshToken(refreshTokenService.generateRefreshToken().getToken())
+                .expiresAt(Instant.now().plusMillis(jwtProvider.getJwtExpirationInMillis()))
+                .username(loginRequest.getUsername())
+                .build();
+    }
+
+    public AuthenticationResponse refreshToken(RefreshTokenRequest refreshTokenRequest) {
+        refreshTokenService.validateRefreshToken(refreshTokenRequest.getRefreshToken());
+        String token = jwtProvider.generateTokenWithUserName(refreshTokenRequest.getUsername());
+        return AuthenticationResponse.builder()
+                .authenticationToken(token)
+                .refreshToken(refreshTokenRequest.getRefreshToken())
+                .expiresAt(Instant.now().plusMillis((jwtProvider.getJwtExpirationInMillis())))
+                .username(refreshTokenRequest.getUsername())
+                .build();
     }
 }
