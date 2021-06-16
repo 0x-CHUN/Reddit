@@ -1,0 +1,13 @@
+<div class="container">
+  <div class="row">
+    <hr/>
+    <div class="col-md-9">
+      <h2>List of Subreddits</h2>
+      <ul class="list-group">
+        <li *ngFor="let subreddit of subreddits" class="list-group-item">
+          <a routerLink="/view-subreddit/{{subreddit.id}}">{{subreddit.name}}</a>
+        </li>
+      </ul>
+    </div>
+  </div>
+</div>
